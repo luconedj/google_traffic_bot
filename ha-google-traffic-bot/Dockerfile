@@ -1,12 +1,12 @@
 FROM python:3.11-slim
 
-# Forza Playwright a usare una cartella globale fissa
 ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
 WORKDIR /app
 
-# Installa tutte le dipendenze di sistema Debian indispensabili per Chromium headless
+# Installa bash, curl, jq e tutte le dipendenze di sistema di Debian per Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    bash \
     curl \
     jq \
     libnss3 \
@@ -28,17 +28,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# Copia i file dell'add-on
 COPY . /app
 
-# Corregge i fine riga di run.sh e assegna i permessi di esecuzione
+# Converte i fine riga e rende eseguibile run.sh usando bash
 RUN sed -i -e 's/\r$//' /app/run.sh && chmod +x /app/run.sh
 
-# Aggiorna pip e installa le librerie Python
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir requests schedule playwright
 
-# Installa Chromium e sblocca i permessi globali
 RUN playwright install chromium && \
     chmod -R 777 /ms-playwright
 
