@@ -1,5 +1,5 @@
 name: "Google Maps Traffic Bot"
-version: "1.4.2"
+version: "1.4.3"
 slug: "google_traffic_bot"
 description: "Bot di monitoraggio traffico con Playwright, Telegram e integrazione nativa HA"
 startup: application
