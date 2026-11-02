@@ -1,5 +1,5 @@
 name: "Google Maps Traffic Bot"
-version: "1.3.1"
+version: "1.4.0"
 slug: "google_traffic_bot"
 description: "Bot di monitoraggio traffico con Playwright, Telegram e integrazione nativa HA"
 startup: application
@@ -9,18 +9,20 @@ arch:
   - amd64
   - aarch64
 options:
-  origin: "a"
-  destination: "b"
+  origin: ""
+  destination: ""
   check_interval_minutes: 10
   diff_threshold_minutes: 5
   free_traffic_threshold_minutes: 35
-  telegram_bot_token: "c"
-  telegram_chat_id: "d"
+  enable_telegram: false
+  telegram_bot_token: ""
+  telegram_chat_id: ""
 schema:
   origin: str
   destination: str
   check_interval_minutes: int
   diff_threshold_minutes: int
   free_traffic_threshold_minutes: int
+  enable_telegram: bool
   telegram_bot_token: str
   telegram_chat_id: str
