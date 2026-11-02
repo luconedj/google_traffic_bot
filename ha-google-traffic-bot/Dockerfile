@@ -1,16 +1,21 @@
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Assicura che pip, setuptools e wheel siano aggiornati
-RUN python3 -m pip install --upgrade pip setuptools wheel
+# Installa solo le librerie di sistema essenziali per Chromium e pulisce la cache APT
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
 
-# Installa i pacchetti usando esplicitamente il modulo pip del python3 di sistema
-RUN python3 -m pip install --no-cache-dir requests schedule playwright
-
-# Installa Chromium e le sue dipendenze di sistema a livello globale
-RUN python3 -m playwright install --with-deps chromium
-
+# Copia i file dell'add-on
 COPY . /app
+
+# Installa le librerie Python senza memorizzare cache di pip
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir requests schedule playwright
+
+# Installa SOLO Chromium (senza installare Firefox o WebKit) e pulisce i residui di build
+RUN playwright install chromium
 
 CMD ["python3", "/app/bot.py"]
