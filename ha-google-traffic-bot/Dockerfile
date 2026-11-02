@@ -4,6 +4,10 @@ WORKDIR /app
 
 COPY . /app
 
-RUN pip install --no-cache-dir requests schedule
+# Installa esplicitamente playwright, requests e schedule
+RUN pip install --no-cache-dir playwright requests schedule
+
+# Installa i binari del browser Chromium necessari per lo scraping
+RUN playwright install chromium
 
 CMD ["python3", "/app/bot.py"]
