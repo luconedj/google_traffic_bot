@@ -1,0 +1,23 @@
+name: "Google Maps Traffic Bot"
+version: "1.3.1"
+slug: "google_traffic_bot"
+description: "Bot di monitoraggio traffico con Playwright, Telegram e integrazione nativa HA"
+startup: application
+boot: auto
+homeassistant_api: true
+options:
+  origin: "Centro Direzionale, Napoli"
+  destination: "Via Trieste 64, San Nicola la Strada CE"
+  check_interval_minutes: 10
+  diff_threshold_minutes: 5
+  free_traffic_threshold_minutes: 35
+  telegram_bot_token: "9116837722:AAHWMm-QrkV9uFpq6GziCY42QPxs7Ethbss"
+  telegram_chat_id: "71035991"
+schema:
+  origin: string
+  destination: string
+  check_interval_minutes: int
+  diff_threshold_minutes: int
+  free_traffic_threshold_minutes: int
+  telegram_bot_token: string
+  telegram_chat_id: string
