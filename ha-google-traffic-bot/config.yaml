@@ -5,6 +5,8 @@ description: "Bot di monitoraggio traffico con Playwright, Telegram e integrazio
 startup: application
 boot: auto
 homeassistant_api: true
+map:
+  - share:rw
 arch:
   - amd64
   - aarch64
