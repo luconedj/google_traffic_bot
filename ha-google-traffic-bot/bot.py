@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import threading
@@ -8,18 +9,30 @@ import requests
 from playwright.sync_api import sync_playwright
 import schedule
 
-# ================= CONFIGURAZIONE DA AMBIENTE (HA ADD-ON) =================
-ORIGIN = os.getenv("ORIGIN", "")
-DESTINATION = os.getenv("DESTINATION", "")
+# ================= CONFIGURAZIONE DA HOME ASSISTANT =================
+options = {}
+if os.path.exists("/data/options.json"):
+  try:
+    with open("/data/options.json", "r") as f:
+      options = json.load(f)
+  except Exception as e:
+    print(f"[CONFIG] Errore lettura /data/options.json: {e}")
 
-CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "10"))
-DIFF_THRESHOLD_MINUTES = int(os.getenv("DIFF_THRESHOLD_MINUTES", "5"))
-FREE_TRAFFIC_THRESHOLD_MINUTES = int(os.getenv("FREE_TRAFFIC_THRESHOLD_MINUTES", "35"))
+ORIGIN = options.get("origin", os.getenv("ORIGIN", ""))
+DESTINATION = options.get("destination", os.getenv("DESTINATION", ""))
 
-# Gestione flag Telegram (convertito in booleano da stringa)
-ENABLE_TELEGRAM = os.getenv("ENABLE_TELEGRAM", "false").lower() in ("true", "1", "yes", "on")
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+CHECK_INTERVAL_MINUTES = int(options.get("check_interval_minutes", os.getenv("CHECK_INTERVAL_MINUTES", 10)))
+DIFF_THRESHOLD_MINUTES = int(options.get("diff_threshold_minutes", os.getenv("DIFF_THRESHOLD_MINUTES", 5)))
+FREE_TRAFFIC_THRESHOLD_MINUTES = int(options.get("free_traffic_threshold_minutes", os.getenv("FREE_TRAFFIC_THRESHOLD_MINUTES", 35)))
+
+enable_tel_val = options.get("enable_telegram", os.getenv("ENABLE_TELEGRAM", False))
+if isinstance(enable_tel_val, str):
+  ENABLE_TELEGRAM = enable_tel_val.lower() in ("true", "1", "yes", "on")
+else:
+  ENABLE_TELEGRAM = bool(enable_tel_val)
+
+TELEGRAM_BOT_TOKEN = options.get("telegram_bot_token", os.getenv("TELEGRAM_BOT_TOKEN", ""))
+TELEGRAM_CHAT_ID = options.get("telegram_chat_id", os.getenv("TELEGRAM_CHAT_ID", ""))
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN", "")
 # =========================================================================
 
@@ -30,7 +43,6 @@ global_page = None
 
 
 def send_telegram_notification(message):
-  # Se Telegram non è abilitato o mancano le credenziali, esce senza fare nulla
   if not ENABLE_TELEGRAM or not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     return
 
@@ -225,6 +237,7 @@ def get_traffic_duration(page):
         print(f"Tempo rilevato via JS fallback: '{cleaned_js}' -> {mins} minuti")
         return mins
 
+    print("[AVVISO] Nessun elemento della durata trovato nel DOM.")
   except Exception as e:
     print(f"Errore durante il recupero dei dati da Google Maps: {e}")
 
