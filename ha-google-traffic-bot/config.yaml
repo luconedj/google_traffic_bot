@@ -14,10 +14,10 @@ options:
   telegram_bot_token: "a"
   telegram_chat_id: "b"
 schema:
-  origin: string
-  destination: string
+  origin: str
+  destination: str
   check_interval_minutes: int
   diff_threshold_minutes: int
   free_traffic_threshold_minutes: int
-  telegram_bot_token: string
-  telegram_chat_id: string
+  telegram_bot_token: str
+  telegram_chat_id: str
