@@ -16,6 +16,8 @@ CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "10"))
 DIFF_THRESHOLD_MINUTES = int(os.getenv("DIFF_THRESHOLD_MINUTES", "5"))
 FREE_TRAFFIC_THRESHOLD_MINUTES = int(os.getenv("FREE_TRAFFIC_THRESHOLD_MINUTES", "35"))
 
+# Gestione flag Telegram (convertito in booleano da stringa)
+ENABLE_TELEGRAM = os.getenv("ENABLE_TELEGRAM", "false").lower() in ("true", "1", "yes", "on")
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN", "")
@@ -28,13 +30,13 @@ global_page = None
 
 
 def send_telegram_notification(message):
-  if not TELEGRAM_BOT_TOKEN or "TUO_BOT_TOKEN" in TELEGRAM_BOT_TOKEN:
-    print(f"\n[SIMULAZIONE TELEGRAM] -> {message}\n")
+  # Se Telegram non è abilitato o mancano le credenziali, esce senza fare nulla
+  if not ENABLE_TELEGRAM or not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
     return
 
   url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
   try:
-    response = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message})
+    response = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message}, timeout=5)
     if not response.ok:
       print(f"Errore invio Telegram: {response.text}")
   except Exception as e:
@@ -56,7 +58,7 @@ def update_ha_sensor(duration, status_active):
       "state": duration if duration is not None else "unavailable",
       "attributes": {
           "unit_of_measurement": "min",
-          "friendly_name": "Tratta Napoli - Caserta (Traffico)",
+          "friendly_name": "Tratta Monitorata (Traffico)",
           "icon": "mdi:car-clock",
           "bot_status": "Attivo" if status_active else "Pausa",
           "origin": ORIGIN,
@@ -74,11 +76,15 @@ def update_ha_sensor(duration, status_active):
 
 def telegram_listener_thread():
   global is_running, last_checked_duration
-  last_update_id = 0
+  
+  if not ENABLE_TELEGRAM:
+    print("🤖 [THREAD] Listener Telegram disabilitato da configurazione.")
+    return
 
+  last_update_id = 0
   print("🤖 [THREAD] Listener Telegram ultra-rapido avviato in background.")
 
-  while True:
+  while ENABLE_TELEGRAM:
     try:
       url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id}&timeout=1"
       response = requests.get(url, timeout=3)
@@ -151,6 +157,10 @@ def parse_duration_to_minutes(text):
 
 
 def get_traffic_duration(page):
+  if not ORIGIN or not DESTINATION:
+    print("[ERRORE] Indirizzo di partenza o arrivo non configurati in Home Assistant!")
+    return None
+
   encoded_origin = urllib.parse.quote(ORIGIN)
   encoded_dest = urllib.parse.quote(DESTINATION)
   url = f"https://www.google.com/maps/dir/{encoded_origin}/{encoded_dest}"
@@ -202,11 +212,11 @@ def get_traffic_duration(page):
           return mins
 
     time_text = page.evaluate(
-        ""() => {
+        """() => {
             const elements = Array.from(document.querySelectorAll('div, span'));
             const match = elements.find(el => el.innerText && (el.innerText.includes('min') || el.innerText.includes('ora')) && el.innerText.length < 15 && !el.innerText.includes('partenza'));
             return match ? match.innerText : null;
-        }""
+        }"""
     )
     if time_text:
       cleaned_js = clean_text(time_text)
@@ -270,9 +280,10 @@ def job_check_traffic():
 def main():
   global global_page
   print(f"--- Avvio Google Maps Traffic Bot (HA Local Add-on) ---")
-  print(f"Partenza: {ORIGIN}")
-  print(f"Arrivo:   {DESTINATION}")
-  print(f"Intervallo: {CHECK_INTERVAL_MINUTES} minuti\n")
+  print(f"Partenza: {ORIGIN if ORIGIN else '[Non configurata]'}")
+  print(f"Arrivo:   {DESTINATION if DESTINATION else '[Non configurata]'}")
+  print(f"Intervallo: {CHECK_INTERVAL_MINUTES} minuti")
+  print(f"Telegram abilitato: {ENABLE_TELEGRAM}\n")
 
   send_telegram_notification("🤖 **Bot Traffico Add-on avviato in Home Assistant!**")
 
