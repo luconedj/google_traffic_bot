@@ -6,13 +6,13 @@ startup: application
 boot: auto
 homeassistant_api: true
 options:
-  origin: "Centro Direzionale, Napoli"
-  destination: "Via Trieste 64, San Nicola la Strada CE"
+  origin: ""
+  destination: ""
   check_interval_minutes: 10
   diff_threshold_minutes: 5
   free_traffic_threshold_minutes: 35
-  telegram_bot_token: "9116837722:AAHWMm-QrkV9uFpq6GziCY42QPxs7Ethbss"
-  telegram_chat_id: "71035991"
+  telegram_bot_token: ""
+  telegram_chat_id: ""
 schema:
   origin: string
   destination: string
