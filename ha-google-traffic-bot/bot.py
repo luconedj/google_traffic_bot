@@ -88,7 +88,7 @@ def update_ha_sensor(duration, status_active):
 
 def telegram_listener_thread():
   global is_running, last_checked_duration
-  
+
   if not ENABLE_TELEGRAM:
     print("🤖 [THREAD] Listener Telegram disabilitato da configurazione.")
     return
@@ -117,22 +117,22 @@ def telegram_listener_thread():
           if text in ["/avvia", "/start"]:
             if not is_running:
               is_running = True
-              send_telegram_notification("▶️ **Bot riavviato!** Il monitoraggio del traffico è ora attivo.")
+              send_telegram_notification("▶️ Bot riavviato! Il monitoraggio del traffico è ora attivo.")
               update_ha_sensor(last_checked_duration, is_running)
             else:
-              send_telegram_notification("ℹ️ Il bot è **già attivo** e in esecuzione.")
+              send_telegram_notification("ℹ️ Il bot è già attivo e in esecuzione.")
 
           elif text in ["/ferma", "/stop"]:
             if is_running:
               is_running = False
-              send_telegram_notification("⏸️ **Bot messo in pausa!** Il monitoraggio è stato fermato.")
+              send_telegram_notification("⏸️ Bot messo in pausa! Il monitoraggio è stato fermato.")
               update_ha_sensor(last_checked_duration, is_running)
             else:
-              send_telegram_notification("ℹ️ Il bot è **già in pausa**.")
+              send_telegram_notification("ℹ️ Il bot è già in pausa.")
 
           elif text == "/stato":
             status_msg = (
-                f"📊 **Stato Bot Traffico**\n"
+                f"📊 Stato Bot Traffico\n"
                 f"- Stato: {'🟢 Attivo' if is_running else '⏸️ In pausa'}\n"
                 f"- Ultimo tempo: {last_checked_duration if last_checked_duration else 'N/D'} min"
             )
@@ -168,6 +168,15 @@ def parse_duration_to_minutes(text):
   return total_minutes if total_minutes > 0 else None
 
 
+def save_debug_screenshot(page):
+  try:
+    os.makedirs("/share", exist_ok=True)
+    page.screenshot(path="/share/traffic_debug.png")
+    print("Screenshot salvato in /share/traffic_debug.png")
+  except Exception as e:
+    print(f"Screenshot fallito: {e}")
+
+
 def get_traffic_duration(page):
   if not ORIGIN or not DESTINATION:
     print("[ERRORE] Indirizzo di partenza o arrivo non configurati in Home Assistant!")
@@ -175,30 +184,30 @@ def get_traffic_duration(page):
 
   encoded_origin = urllib.parse.quote(ORIGIN)
   encoded_dest = urllib.parse.quote(DESTINATION)
-  url = f"https://www.google.com/maps/dir/{encoded_origin}/{encoded_dest}"
+  url = f"https://www.google.com/maps/dir/{encoded_origin}/{encoded_dest}?hl=it"
 
   print(f"[{datetime.now().strftime('%H:%M:%S')}] Apertura Google Maps in corso...")
   try:
-    page.goto(url, timeout=60000)
+    page.goto(url, timeout=60000, wait_until="domcontentloaded")
   except Exception as e:
     print(f"Errore di navigazione Playwright: {e}")
     return None
 
+  print(f"URL raggiunto: {page.url}")
+
+  # Banner cookie / consenso (anche su consent.google.com)
   try:
-    for selector in [
-        "button[aria-label='Accetta tutto']",
-        "button:has-text('Accetta tutto')",
-        "button:has-text('Accept all')",
-        "form[action*='consent'] button",
-    ]:
-      btn = page.locator(selector).first
-      if btn.is_visible(timeout=2000):
-        btn.click()
-        print("Banner cookie chiuso con successo.")
-        time.sleep(2)
-        break
+    btn = page.locator(
+        "button:has-text('Accetta tutto'), "
+        "button[aria-label='Accetta tutto'], "
+        "button:has-text('Accept all')"
+    ).first
+    btn.wait_for(state="visible", timeout=5000)
+    btn.click()
+    print("Banner cookie chiuso con successo.")
+    page.wait_for_load_state("domcontentloaded", timeout=30000)
   except Exception:
-    pass
+    pass  # nessun banner presente
 
   try:
     page.wait_for_selector("div.ivN21e, div.tUEPjf, div[data-trip-index]", timeout=15000)
@@ -241,6 +250,7 @@ def get_traffic_duration(page):
   except Exception as e:
     print(f"Errore durante il recupero dei dati da Google Maps: {e}")
 
+  save_debug_screenshot(page)
   return None
 
 
@@ -292,13 +302,13 @@ def job_check_traffic():
 
 def main():
   global global_page
-  print(f"--- Avvio Google Maps Traffic Bot (HA Local Add-on) ---")
+  print("--- Avvio Google Maps Traffic Bot (HA Local Add-on) ---")
   print(f"Partenza: {ORIGIN if ORIGIN else '[Non configurata]'}")
   print(f"Arrivo:   {DESTINATION if DESTINATION else '[Non configurata]'}")
   print(f"Intervallo: {CHECK_INTERVAL_MINUTES} minuti")
   print(f"Telegram abilitato: {ENABLE_TELEGRAM}\n")
 
-  send_telegram_notification("🤖 **Bot Traffico Add-on avviato in Home Assistant!**")
+  send_telegram_notification("🤖 Bot Traffico Add-on avviato in Home Assistant!")
 
   t = threading.Thread(target=telegram_listener_thread, daemon=True)
   t.start()
