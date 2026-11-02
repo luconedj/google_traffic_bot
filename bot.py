@@ -9,8 +9,8 @@ from playwright.sync_api import sync_playwright
 import schedule
 
 # ================= CONFIGURAZIONE DA AMBIENTE (HA ADD-ON) =================
-ORIGIN = os.getenv("ORIGIN", "Centro Direzionale, Napoli")
-DESTINATION = os.getenv("DESTINATION", "Via Trieste 64, San Nicola la Strada CE")
+ORIGIN = os.getenv("ORIGIN", "")
+DESTINATION = os.getenv("DESTINATION", "")
 
 CHECK_INTERVAL_MINUTES = int(os.getenv("CHECK_INTERVAL_MINUTES", "10"))
 DIFF_THRESHOLD_MINUTES = int(os.getenv("DIFF_THRESHOLD_MINUTES", "5"))
