@@ -6,13 +6,13 @@ startup: application
 boot: auto
 homeassistant_api: true
 options:
-  origin: ""
-  destination: ""
+  origin: "a"
+  destination: "b"
   check_interval_minutes: 10
   diff_threshold_minutes: 5
   free_traffic_threshold_minutes: 35
-  telegram_bot_token: ""
-  telegram_chat_id: ""
+  telegram_bot_token: "a"
+  telegram_chat_id: "b"
 schema:
   origin: string
   destination: string
