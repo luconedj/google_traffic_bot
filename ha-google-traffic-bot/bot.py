@@ -1,13 +1,13 @@
 import json
 import os
 import re
-import threading
+import signal
+import sys
 import time
 import urllib.parse
 from datetime import datetime
 import requests
 from playwright.sync_api import sync_playwright
-import schedule
 
 # ================= CONFIGURAZIONE DA HOME ASSISTANT =================
 options = {}
@@ -36,10 +36,32 @@ TELEGRAM_CHAT_ID = options.get("telegram_chat_id", os.getenv("TELEGRAM_CHAT_ID",
 SUPERVISOR_TOKEN = os.getenv("SUPERVISOR_TOKEN", "")
 # =========================================================================
 
-is_running = True
-last_checked_duration = None
+STATE_PATH = "/data/browser_state.json"
+SCREENSHOT_PATH = "/share/traffic_debug.png"
+
+# Risorse pesanti non necessarie: la durata è testo nel DOM
+BLOCKED_RESOURCE_TYPES = {"image", "media", "font"}
+
+CHROMIUM_ARGS = [
+    "--no-sandbox",
+    "--disable-setuid-sandbox",
+    "--disable-dev-shm-usage",
+    "--disable-gpu",
+    "--disable-extensions",
+    "--disable-background-networking",
+    "--disable-default-apps",
+    "--disable-sync",
+    "--no-first-run",
+    "--mute-audio",
+    "--disable-blink-features=AutomationControlled",
+]
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
 last_duration = None
-global_page = None
 
 
 def send_telegram_notification(message):
@@ -55,7 +77,7 @@ def send_telegram_notification(message):
     print(f"Errore di connessione a Telegram: {e}")
 
 
-def update_ha_sensor(duration, status_active):
+def update_ha_sensor(duration):
   if not SUPERVISOR_TOKEN:
     print("[HA API] SUPERVISOR_TOKEN non trovato. Aggiornamento HA saltato.")
     return
@@ -72,7 +94,7 @@ def update_ha_sensor(duration, status_active):
           "unit_of_measurement": "min",
           "friendly_name": "Tratta Monitorata (Traffico)",
           "icon": "mdi:car-clock",
-          "bot_status": "Attivo" if status_active else "Pausa",
+          "bot_status": "Attivo",
           "origin": ORIGIN,
           "destination": DESTINATION,
       },
@@ -84,64 +106,6 @@ def update_ha_sensor(duration, status_active):
       print(f"[HA API] Errore aggiornamento sensore: {response.status_code}")
   except Exception as e:
     print(f"[HA API] Eccezione di rete verso Home Assistant: {e}")
-
-
-def telegram_listener_thread():
-  global is_running, last_checked_duration
-
-  if not ENABLE_TELEGRAM:
-    print("🤖 [THREAD] Listener Telegram disabilitato da configurazione.")
-    return
-
-  last_update_id = 0
-  print("🤖 [THREAD] Listener Telegram ultra-rapido avviato in background.")
-
-  while ENABLE_TELEGRAM:
-    try:
-      url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/getUpdates?offset={last_update_id}&timeout=1"
-      response = requests.get(url, timeout=3)
-
-      if response.ok:
-        data = response.json()
-        for result in data.get("result", []):
-          last_update_id = result["update_id"] + 1
-          message = result.get("message", {})
-          chat_id = str(message.get("chat", {}).get("id"))
-
-          if chat_id != str(TELEGRAM_CHAT_ID):
-            continue
-
-          text = message.get("text", "").strip().lower()
-          print(f"[TELEGRAM] Comando ricevuto: '{text}'")
-
-          if text in ["/avvia", "/start"]:
-            if not is_running:
-              is_running = True
-              send_telegram_notification("▶️ Bot riavviato! Il monitoraggio del traffico è ora attivo.")
-              update_ha_sensor(last_checked_duration, is_running)
-            else:
-              send_telegram_notification("ℹ️ Il bot è già attivo e in esecuzione.")
-
-          elif text in ["/ferma", "/stop"]:
-            if is_running:
-              is_running = False
-              send_telegram_notification("⏸️ Bot messo in pausa! Il monitoraggio è stato fermato.")
-              update_ha_sensor(last_checked_duration, is_running)
-            else:
-              send_telegram_notification("ℹ️ Il bot è già in pausa.")
-
-          elif text == "/stato":
-            status_msg = (
-                f"📊 Stato Bot Traffico\n"
-                f"- Stato: {'🟢 Attivo' if is_running else '⏸️ In pausa'}\n"
-                f"- Ultimo tempo: {last_checked_duration if last_checked_duration else 'N/D'} min"
-            )
-            send_telegram_notification(status_msg)
-
-    except Exception:
-      pass
-
-    time.sleep(2)
 
 
 def clean_text(text):
@@ -171,10 +135,17 @@ def parse_duration_to_minutes(text):
 def save_debug_screenshot(page):
   try:
     os.makedirs("/share", exist_ok=True)
-    page.screenshot(path="/share/traffic_debug.png")
-    print("Screenshot salvato in /share/traffic_debug.png")
+    page.screenshot(path=SCREENSHOT_PATH)
+    print(f"Screenshot salvato in {SCREENSHOT_PATH}")
   except Exception as e:
     print(f"Screenshot fallito: {e}")
+
+
+def block_heavy_resources(route):
+  if route.request.resource_type in BLOCKED_RESOURCE_TYPES:
+    route.abort()
+  else:
+    route.continue_()
 
 
 def get_traffic_duration(page):
@@ -254,21 +225,53 @@ def get_traffic_duration(page):
   return None
 
 
-def job_check_traffic():
-  global is_running, last_checked_duration, last_duration, global_page
+def fetch_duration():
+  """Avvia Chromium, legge il tempo e chiude tutto: a riposo la RAM resta libera."""
+  with sync_playwright() as p:
+    browser = p.chromium.launch(headless=True, args=CHROMIUM_ARGS)
+    try:
+      ctx_kwargs = {
+          "locale": "it-IT",
+          "user_agent": USER_AGENT,
+          "viewport": {"width": 1280, "height": 800},
+      }
 
-  if not is_running:
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] Bot in pausa. Controllo traffico saltato.")
-    return
+      # Riusa il consenso cookie salvato (se il file è valido)
+      if os.path.exists(STATE_PATH):
+        try:
+          with open(STATE_PATH, "r") as f:
+            json.load(f)
+          ctx_kwargs["storage_state"] = STATE_PATH
+        except Exception:
+          os.remove(STATE_PATH)
+
+      context = browser.new_context(**ctx_kwargs)
+      context.route("**/*", block_heavy_resources)
+      page = context.new_page()
+
+      duration = get_traffic_duration(page)
+
+      if duration is not None:
+        try:
+          context.storage_state(path=STATE_PATH)
+        except Exception:
+          pass
+
+      return duration
+    finally:
+      browser.close()
+
+
+def job_check_traffic():
+  global last_duration
 
   current_time = datetime.now().strftime("%H:%M")
-  current_duration = get_traffic_duration(global_page)
+  current_duration = fetch_duration()
 
   if current_duration is not None:
-    last_checked_duration = current_duration
     print(f"[{current_time}] Durata attuale stimata: {current_duration} min")
 
-    update_ha_sensor(current_duration, is_running)
+    update_ha_sensor(current_duration)
 
     if last_duration is not None:
       diff = current_duration - last_duration
@@ -284,10 +287,9 @@ def job_check_traffic():
           current_duration <= FREE_TRAFFIC_THRESHOLD_MINUTES
           and last_duration > FREE_TRAFFIC_THRESHOLD_MINUTES
       ):
-        msg = (
+        send_telegram_notification(
             f"🟢 Percorso libero! Il tempo di percorrenza è sceso a {current_duration} min."
         )
-        send_telegram_notification(msg)
     else:
       send_telegram_notification(
           f"🤖 Bot Add-on avviato. Monitoraggio attivo. Tempo iniziale: {current_duration} min."
@@ -301,7 +303,8 @@ def job_check_traffic():
 
 
 def main():
-  global global_page
+  signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
   print("--- Avvio Google Maps Traffic Bot (HA Local Add-on) ---")
   print(f"Partenza: {ORIGIN if ORIGIN else '[Non configurata]'}")
   print(f"Arrivo:   {DESTINATION if DESTINATION else '[Non configurata]'}")
@@ -310,42 +313,16 @@ def main():
 
   send_telegram_notification("🤖 Bot Traffico Add-on avviato in Home Assistant!")
 
-  t = threading.Thread(target=telegram_listener_thread, daemon=True)
-  t.start()
+  interval_seconds = CHECK_INTERVAL_MINUTES * 60
 
-  with sync_playwright() as p:
-    browser = p.chromium.launch(
-        headless=True,
-        args=[
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-blink-features=AutomationControlled",
-            "--disable-infobars",
-            "--disable-dev-shm-usage",
-        ],
-    )
-
-    context = browser.new_context(
-        locale="it-IT",
-        user_agent=(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-        ),
-        viewport={"width": 1280, "height": 800},
-    )
-
-    global_page = context.new_page()
-
-    job_check_traffic()
-    schedule.every(CHECK_INTERVAL_MINUTES).minutes.do(job_check_traffic)
-
+  while True:
+    started = time.time()
     try:
-      while True:
-        schedule.run_pending()
-        time.sleep(1)
-    except KeyboardInterrupt:
-      print("\nMonitoraggio interrotto.")
-    finally:
-      browser.close()
+      job_check_traffic()
+    except Exception as e:
+      print(f"[ERRORE] Controllo fallito: {e}")
+
+    time.sleep(max(5, interval_seconds - (time.time() - started)))
 
 
 if __name__ == "__main__":
